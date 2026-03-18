@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import './App.css';
 import { TEMPLATES } from './data/templates.js';
+import { defaultEntity } from './data/entities.js';
+import Representing from './components/Representing.jsx';
 import JobSetup from './components/JobSetup.jsx';
 import Scope from './components/Scope.jsx';
 import Costs from './components/Costs.jsx';
@@ -8,10 +10,11 @@ import Output from './components/Output.jsx';
 
 const STORAGE_KEY = 'kolega-scope-job';
 const TABS = [
-  { id: 'setup', label: 'Setup' },
-  { id: 'scope', label: 'Scope' },
-  { id: 'costs', label: 'Costs' },
-  { id: 'output', label: 'Output' },
+  { id: 'representing', label: 'Representing' },
+  { id: 'setup',        label: 'Setup' },
+  { id: 'scope',        label: 'Scope' },
+  { id: 'costs',        label: 'Costs' },
+  { id: 'output',       label: 'Output' },
 ];
 
 let _idCounter = 9000;
@@ -21,7 +24,6 @@ function makeId() {
 
 function cloneTemplateItems(templateId) {
   const template = TEMPLATES.find(t => t.id === templateId) || TEMPLATES[0];
-  // Deep clone with fresh IDs
   return template.items.map(it => ({ ...it, id: makeId() }));
 }
 
@@ -34,6 +36,7 @@ function newJob(templateId = TEMPLATES[0].id) {
     client: '',
     location: '',
     notes: '',
+    entity: defaultEntity(),
     items: cloneTemplateItems(templateId),
     costs: {
       labourRate: 85,
@@ -42,6 +45,7 @@ function newJob(templateId = TEMPLATES[0].id) {
       plantHire: 0,
       consumables: 0,
       travel: 0,
+      materials: [],
     },
   };
 }
@@ -57,9 +61,16 @@ function loadFromStorage() {
 }
 
 export default function App() {
-  const [job, setJob] = useState(() => loadFromStorage() || newJob());
-  const [activeTab, setActiveTab] = useState('setup');
-  const [saveStatus, setSaveStatus] = useState('saved'); // 'saving' | 'saved'
+  const [job, setJob] = useState(() => {
+    const saved = loadFromStorage();
+    // Backfill entity if loading an older saved job
+    if (saved && !saved.entity) {
+      saved.entity = defaultEntity();
+    }
+    return saved || newJob();
+  });
+  const [activeTab, setActiveTab] = useState('representing');
+  const [saveStatus, setSaveStatus] = useState('saved');
   const debounceRef = useRef(null);
 
   // Auto-save with debounce
@@ -71,7 +82,7 @@ export default function App() {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(job));
         setSaveStatus('saved');
       } catch {
-        setSaveStatus('saved'); // silently fail
+        setSaveStatus('saved');
       }
     }, 500);
     return () => {
@@ -94,15 +105,19 @@ export default function App() {
   function handleNewJob() {
     if (window.confirm('Start a new job? This will clear the current job. Unsaved changes will be lost.')) {
       setJob(newJob());
-      setActiveTab('setup');
+      setActiveTab('representing');
     }
   }
 
   // Colours
   const primary = '#1B3A5C';
-  const blue = '#2E6DA4';
-  const bg = '#EEF3F8';
-  const border = '#D8E4EF';
+  const blue    = '#2E6DA4';
+  const bg      = '#EEF3F8';
+  const border  = '#D8E4EF';
+
+  // Derive entity label for header display
+  const entityPreset = job.entity?.preset || 'kolega';
+  const entityLabel  = job.entity?.name || '';
 
   const headerStyle = {
     background: primary,
@@ -126,6 +141,17 @@ export default function App() {
     textTransform: 'uppercase',
     color: 'white',
     flexShrink: 0,
+  };
+
+  const entityBadgeStyle = {
+    fontSize: '11px',
+    background: 'rgba(255,255,255,0.15)',
+    color: 'rgba(255,255,255,0.85)',
+    borderRadius: '4px',
+    padding: '2px 8px',
+    fontWeight: '600',
+    flexShrink: 0,
+    letterSpacing: '0.03em',
   };
 
   const jobNameStyle = {
@@ -185,7 +211,10 @@ export default function App() {
     <div style={{ minHeight: '100vh', background: bg }}>
       {/* Header */}
       <header className="no-print" style={headerStyle}>
-        <div style={logoStyle}>Kolega Scope Tool</div>
+        <div style={logoStyle}>Kolega Scope</div>
+        {entityLabel && (
+          <div style={entityBadgeStyle}>{entityLabel}</div>
+        )}
         {job.name && (
           <div style={jobNameStyle}>— {job.name}</div>
         )}
@@ -210,6 +239,9 @@ export default function App() {
 
       {/* Tab content */}
       <main>
+        {activeTab === 'representing' && (
+          <Representing job={job} onUpdate={handleUpdate} />
+        )}
         {activeTab === 'setup' && (
           <JobSetup
             job={job}
@@ -218,21 +250,13 @@ export default function App() {
           />
         )}
         {activeTab === 'scope' && (
-          <Scope
-            job={job}
-            onUpdate={handleUpdate}
-          />
+          <Scope job={job} onUpdate={handleUpdate} />
         )}
         {activeTab === 'costs' && (
-          <Costs
-            job={job}
-            onUpdate={handleUpdate}
-          />
+          <Costs job={job} onUpdate={handleUpdate} />
         )}
         {activeTab === 'output' && (
-          <Output
-            job={job}
-          />
+          <Output job={job} />
         )}
       </main>
     </div>

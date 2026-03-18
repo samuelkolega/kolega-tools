@@ -1,7 +1,14 @@
+import { useState } from 'react';
+
 const mono = { fontFamily: "'DM Mono', 'Courier New', monospace" };
 
 function fmt(n) {
   return n.toLocaleString('en-AU', { style: 'currency', currency: 'AUD', minimumFractionDigits: 0, maximumFractionDigits: 0 });
+}
+
+let _matId = 1;
+function makeMaterialId() {
+  return `mat-${Date.now()}-${_matId++}`;
 }
 
 function SliderRow({ label, value, min, max, step = 1, unit, onChange }) {
@@ -58,25 +65,53 @@ export default function Costs({ job, onUpdate }) {
   const costs = job.costs || {};
   const items = job.items || [];
 
+  const [newMatDesc, setNewMatDesc] = useState('');
+  const [newMatCost, setNewMatCost] = useState('');
+
   const totalManHours = items.reduce((s, it) => s + (it.hours || 0) * (it.crew || 1), 0);
 
-  const labourRate = costs.labourRate ?? 85;
-  const marginPct = costs.marginPct ?? 20;
-  const riskPct = costs.riskPct ?? 5;
-  const plantHire = costs.plantHire ?? 0;
-  const consumables = costs.consumables ?? 0;
-  const travel = costs.travel ?? 0;
+  const labourRate   = costs.labourRate ?? 85;
+  const marginPct    = costs.marginPct ?? 20;
+  const riskPct      = costs.riskPct ?? 5;
+  const plantHire    = costs.plantHire ?? 0;
+  const consumables  = costs.consumables ?? 0;
+  const travel       = costs.travel ?? 0;
+  const materials    = costs.materials ?? [];
 
-  const labourCost = totalManHours * labourRate;
-  const fixedCosts = plantHire + consumables + travel;
-  const subtotal = labourCost + fixedCosts;
-  const marginAmt = subtotal * (marginPct / 100);
-  const riskAmt = subtotal * (riskPct / 100);
-  const totalQuote = subtotal + marginAmt + riskAmt;
-  const costPerMH = totalManHours > 0 ? totalQuote / totalManHours : 0;
+  // --- Formula ---
+  // Margin base = labour + materials + consumables (cost-of-works)
+  // Plant hire & travel are pass-throughs (no margin applied)
+  const labourCost    = totalManHours * labourRate;
+  const materialsCost = materials.reduce((s, m) => s + (m.cost || 0), 0);
+  const marginBase    = labourCost + materialsCost + consumables;
+  const passThrough   = plantHire + travel;
+  const marginAmt     = marginBase * (marginPct / 100);
+  const riskAmt       = marginBase * (riskPct / 100);
+  const totalQuote    = marginBase + marginAmt + riskAmt + passThrough;
+  const costPerMH     = totalManHours > 0 ? totalQuote / totalManHours : 0;
 
   function setCost(field, value) {
     onUpdate({ ...job, costs: { ...costs, [field]: value } });
+  }
+
+  function handleAddMaterial() {
+    const desc = newMatDesc.trim();
+    const cost = parseFloat(newMatCost) || 0;
+    if (!desc) return;
+    const updated = [...materials, { id: makeMaterialId(), description: desc, cost }];
+    onUpdate({ ...job, costs: { ...costs, materials: updated } });
+    setNewMatDesc('');
+    setNewMatCost('');
+  }
+
+  function handleUpdateMaterial(id, field, value) {
+    const updated = materials.map(m => m.id === id ? { ...m, [field]: value } : m);
+    onUpdate({ ...job, costs: { ...costs, materials: updated } });
+  }
+
+  function handleDeleteMaterial(id) {
+    const updated = materials.filter(m => m.id !== id);
+    onUpdate({ ...job, costs: { ...costs, materials: updated } });
   }
 
   const card = {
@@ -116,12 +151,22 @@ export default function Costs({ job, onUpdate }) {
     </div>
   );
 
+  const matInputStyle = {
+    border: '1px solid #D8E4EF',
+    borderRadius: '4px',
+    padding: '7px 10px',
+    fontSize: '13px',
+    background: '#F7FAFD',
+    outline: 'none',
+  };
+
   return (
     <div style={{ padding: '16px', maxWidth: '900px', margin: '0 auto' }}>
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 280px', gap: '16px', alignItems: 'start' }}>
 
         {/* Left column: controls */}
         <div>
+
           {/* Labour */}
           <div style={card}>
             <div style={sectionTitle}>Labour</div>
@@ -146,13 +191,105 @@ export default function Costs({ job, onUpdate }) {
             />
           </div>
 
-          {/* Fixed Costs */}
+          {/* Materials */}
           <div style={card}>
-            <div style={sectionTitle}>Fixed Costs</div>
+            <div style={{ ...sectionTitle, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span>Materials</span>
+              {materialsCost > 0 && (
+                <span style={{ ...mono, fontSize: '14px', fontWeight: '700', color: '#2E6DA4' }}>{fmt(materialsCost)}</span>
+              )}
+            </div>
+
+            {/* Existing material lines */}
+            {materials.length > 0 && (
+              <div style={{ marginBottom: '12px' }}>
+                {materials.map((m, i) => (
+                  <div key={m.id} style={{
+                    display: 'flex',
+                    gap: '8px',
+                    alignItems: 'center',
+                    padding: '6px 0',
+                    borderBottom: i < materials.length - 1 ? '1px solid #EEF3F8' : 'none',
+                  }}>
+                    <input
+                      value={m.description}
+                      onChange={e => handleUpdateMaterial(m.id, 'description', e.target.value)}
+                      placeholder="Material description"
+                      style={{ ...matInputStyle, flex: 1 }}
+                    />
+                    <div style={{ display: 'flex', alignItems: 'center', border: '1px solid #D8E4EF', borderRadius: '4px', background: '#F7FAFD', overflow: 'hidden', width: '130px' }}>
+                      <span style={{ padding: '7px 8px', fontSize: '13px', color: '#7A8A99', borderRight: '1px solid #D8E4EF', ...mono }}>$</span>
+                      <input
+                        type="number"
+                        min="0"
+                        value={m.cost}
+                        onChange={e => handleUpdateMaterial(m.id, 'cost', parseFloat(e.target.value) || 0)}
+                        style={{ border: 'none', outline: 'none', padding: '7px 8px', fontSize: '13px', width: '80px', ...mono, background: 'transparent' }}
+                      />
+                    </div>
+                    <button
+                      onClick={() => handleDeleteMaterial(m.id)}
+                      style={{ background: '#F8D7DA', color: '#721C24', border: 'none', borderRadius: '4px', padding: '6px 10px', fontSize: '12px', cursor: 'pointer', flexShrink: 0 }}
+                    >✕</button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Add new material row */}
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center', paddingTop: materials.length > 0 ? '8px' : '0' }}>
+              <input
+                value={newMatDesc}
+                onChange={e => setNewMatDesc(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && handleAddMaterial()}
+                placeholder="e.g. Steel columns, Concrete, Bolts…"
+                style={{ ...matInputStyle, flex: 1 }}
+              />
+              <div style={{ display: 'flex', alignItems: 'center', border: '1px solid #D8E4EF', borderRadius: '4px', background: '#F7FAFD', overflow: 'hidden', width: '130px' }}>
+                <span style={{ padding: '7px 8px', fontSize: '13px', color: '#7A8A99', borderRight: '1px solid #D8E4EF', ...mono }}>$</span>
+                <input
+                  type="number"
+                  min="0"
+                  value={newMatCost}
+                  onChange={e => setNewMatCost(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && handleAddMaterial()}
+                  placeholder="0"
+                  style={{ border: 'none', outline: 'none', padding: '7px 8px', fontSize: '13px', width: '80px', ...mono, background: 'transparent' }}
+                />
+              </div>
+              <button
+                onClick={handleAddMaterial}
+                style={{ background: '#D4EDDA', color: '#155724', border: '1px solid #C3E6CB', borderRadius: '4px', padding: '6px 14px', fontSize: '13px', fontWeight: '600', cursor: 'pointer', flexShrink: 0 }}
+              >+ Add</button>
+            </div>
+
+            {materials.length === 0 && (
+              <div style={{ marginTop: '10px', fontSize: '12px', color: '#7A8A99' }}>
+                No materials added. Enter a description and cost above, then press + Add or hit Enter.
+              </div>
+            )}
+          </div>
+
+          {/* Fixed Costs (pass-throughs — no margin applied) */}
+          <div style={card}>
+            <div style={sectionTitle}>
+              Pass-Through Costs
+              <span style={{ fontSize: '11px', fontWeight: '500', color: '#7A8A99', marginLeft: '8px', textTransform: 'none', letterSpacing: 0 }}>— plant hire & travel added at cost, no margin applied</span>
+            </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '0 20px' }}>
               <NumberInput label="Plant Hire ($)" value={plantHire} onChange={v => setCost('plantHire', v)} />
-              <NumberInput label="Consumables ($)" value={consumables} onChange={v => setCost('consumables', v)} />
               <NumberInput label="Travel / Mobilisation ($)" value={travel} onChange={v => setCost('travel', v)} />
+            </div>
+          </div>
+
+          {/* Consumables — stays in margin base */}
+          <div style={card}>
+            <div style={sectionTitle}>
+              Consumables
+              <span style={{ fontSize: '11px', fontWeight: '500', color: '#7A8A99', marginLeft: '8px', textTransform: 'none', letterSpacing: 0 }}>— included in margin base</span>
+            </div>
+            <div style={{ maxWidth: '220px' }}>
+              <NumberInput label="Consumables ($)" value={consumables} onChange={v => setCost('consumables', v)} />
             </div>
           </div>
 
@@ -163,6 +300,10 @@ export default function Costs({ job, onUpdate }) {
               <span style={{ fontSize: '11px', background: '#FFF3CD', color: '#856404', padding: '2px 8px', borderRadius: '4px', fontWeight: '600', letterSpacing: '0.03em' }}>
                 INTERNAL ONLY — Not shown in client output
               </span>
+            </div>
+            <div style={{ background: '#FFF8E1', borderRadius: '6px', padding: '8px 12px', marginBottom: '14px', fontSize: '12px', color: '#856404' }}>
+              Applied to: Labour + Materials + Consumables&nbsp;
+              <span style={{ ...mono, fontWeight: '700' }}>{fmt(marginBase)}</span>
             </div>
             <SliderRow
               label="Margin %"
@@ -190,10 +331,18 @@ export default function Costs({ job, onUpdate }) {
           <div style={sectionTitle}>Quote Summary</div>
 
           {summaryRow('Labour cost', fmt(labourCost))}
-          {summaryRow('Fixed costs', fmt(fixedCosts))}
-          {summaryRow('Subtotal', fmt(subtotal), { separator: true })}
+          {summaryRow('Materials', fmt(materialsCost))}
+          {summaryRow('Consumables', fmt(consumables))}
+          {summaryRow('Margin base', fmt(marginBase), { separator: true })}
           {summaryRow(`Margin (${marginPct}%)`, fmt(marginAmt), { muted: true })}
           {summaryRow(`Risk buffer (${riskPct}%)`, fmt(riskAmt), { muted: true })}
+
+          {(plantHire > 0 || travel > 0) && (
+            <>
+              {summaryRow('Plant hire', fmt(plantHire), { muted: true })}
+              {summaryRow('Travel', fmt(travel), { muted: true })}
+            </>
+          )}
 
           {summaryRow('TOTAL QUOTE', fmt(totalQuote), { total: true, highlight: true })}
 
@@ -208,6 +357,7 @@ export default function Costs({ job, onUpdate }) {
 
           <div style={{ marginTop: '12px', fontSize: '12px', color: '#7A8A99', lineHeight: '1.5' }}>
             Based on <strong style={{ color: '#1A2733' }}>{totalManHours.toFixed(1)}</strong> man-hours at <strong style={{ color: '#1A2733' }}>{fmt(labourRate)}/hr</strong> charge-out.
+            {materials.length > 0 && <> Plus <strong style={{ color: '#1A2733' }}>{materials.length}</strong> material line{materials.length > 1 ? 's' : ''}.</>}
           </div>
         </div>
       </div>
