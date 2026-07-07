@@ -1,17 +1,13 @@
 import { useState } from 'react';
 import Section from './Section.jsx';
 import { FLAG_COLORS } from '../data/templates.js';
+import { groupByCategory, makeItemId } from '../data/quote.js';
 
 const mono = { fontFamily: "'DM Mono', 'Courier New', monospace" };
 
 const CATEGORIES = ['MOBILISATION', 'STRUCTURE', 'FRAMING', 'ROOFING', 'FITOUT', 'FINISHING', 'LOGISTICS', 'DEMOLITION', 'EXTERNAL', 'GENERAL'];
 const UNITS = ['m²', 'lm', 'item', 'hr'];
 const FLAGS_LIST = ['', 'CONFIRM', 'HEIGHT', 'CRITICAL', 'TBC', 'EQUIPMENT', 'STORMWATER', 'DAY 1'];
-
-let _idCounter = 1000;
-function makeId() {
-  return `item-${Date.now()}-${_idCounter++}`;
-}
 
 export default function Scope({ job, onUpdate }) {
   const [editMode, setEditMode] = useState(false);
@@ -36,15 +32,7 @@ export default function Scope({ job, onUpdate }) {
   const flaggedItems = items.filter(it => it.flag);
 
   // Group by category, preserving order of first appearance
-  const categoryOrder = [];
-  const grouped = {};
-  items.forEach(it => {
-    if (!grouped[it.category]) {
-      grouped[it.category] = [];
-      categoryOrder.push(it.category);
-    }
-    grouped[it.category].push(it);
-  });
+  const { categoryOrder, grouped } = groupByCategory(items);
 
   function handleUpdate(updated) {
     onUpdate({
@@ -62,7 +50,7 @@ export default function Scope({ job, onUpdate }) {
       alert('Item description is required.');
       return;
     }
-    const item = { ...newItem, id: makeId(), flag: newItem.flag || null };
+    const item = { ...newItem, id: makeItemId(), flag: newItem.flag || null };
     onUpdate({ ...job, items: [...items, item] });
     setNewItem({
       category: 'GENERAL',

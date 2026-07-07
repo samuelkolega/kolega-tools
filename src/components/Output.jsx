@@ -1,10 +1,13 @@
-import { useState } from 'react';
+import { useState, Fragment } from 'react';
 import { FLAG_COLORS, CAT_COLORS, TEMPLATES } from '../data/templates.js';
+import { computeQuote, groupByCategory, fmt } from '../data/quote.js';
 
 const mono = { fontFamily: "'DM Mono', 'Courier New', monospace" };
 
-function fmt(n) {
-  return n.toLocaleString('en-AU', { style: 'currency', currency: 'AUD', minimumFractionDigits: 0, maximumFractionDigits: 0 });
+// Issuing entity name for external documents — falls back to Kolega Construct
+// only when no entity is set on the job.
+function issuerName(job) {
+  return job.entity?.name || 'Kolega Construct';
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -21,38 +24,17 @@ function fmtDate(iso) {
 
 function buildPrintHTML(job, isInternal) {
   const items      = job.items || [];
-  const costs      = job.costs || {};
   const entity     = job.entity || {};
   const template   = TEMPLATES.find(t => t.id === job.type);
 
-  // Numbers
-  const labourRate    = costs.labourRate ?? 85;
-  const marginPct     = costs.marginPct ?? 20;
-  const riskPct       = costs.riskPct ?? 5;
-  const plantHire     = costs.plantHire ?? 0;
-  const consumables   = costs.consumables ?? 0;
-  const travel        = costs.travel ?? 0;
-  const materials     = costs.materials ?? [];
-  const totalManHours = items.reduce((s, it) => s + (it.hours || 0) * (it.crew || 1), 0);
-  const totalHours    = items.reduce((s, it) => s + (it.hours || 0), 0);
-  const labourCost    = totalManHours * labourRate;
-  const materialsCost = materials.reduce((s, m) => s + (m.cost || 0), 0);
-  const marginBase    = labourCost + materialsCost + consumables;
-  const passThrough   = plantHire + travel;
-  const marginAmt     = marginBase * (marginPct / 100);
-  const riskAmt       = marginBase * (riskPct / 100);
-  const totalQuote    = marginBase + marginAmt + riskAmt + passThrough;
+  // Numbers — single source of truth in data/quote.js
+  const {
+    labourRate, marginPct, riskPct, plantHire, consumables, travel, materials,
+    totalHours, totalManHours, labourCost, marginBase, marginAmt, riskAmt, totalQuote,
+  } = computeQuote(job);
 
   // Category grouping
-  const categoryOrder = [];
-  const grouped = {};
-  items.forEach(it => {
-    if (!grouped[it.category]) {
-      grouped[it.category] = [];
-      categoryOrder.push(it.category);
-    }
-    grouped[it.category].push(it);
-  });
+  const { categoryOrder, grouped } = groupByCategory(items);
 
   // Helpers
   const esc = (s) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -191,7 +173,7 @@ function buildPrintHTML(job, isInternal) {
       </h2>
       <div style="border:1pt solid #D8E4EF;border-radius:6px;padding:14px 18px;max-width:380px">
         ${costRow(`Labour — ${totalManHours.toFixed(1)} mh × ${fmt(labourRate)}/hr`, fmt(labourCost))}
-        ${materials.map(m => costRow(esc(m.description) || 'Material', fmt(m.cost || 0))).join('')}
+        ${materials.map(m => costRow(m.description || 'Material', fmt(m.cost || 0))).join('')}
         ${costRow('Consumables', fmt(consumables))}
         ${costRow('Margin base', fmt(marginBase), { sep: true })}
         ${costRow(`Margin (${marginPct}%)`, fmt(marginAmt), { muted: true })}
@@ -229,10 +211,10 @@ function buildPrintHTML(job, isInternal) {
       <div style="border:2pt solid #1B3A5C;border-radius:8px;padding:18px 22px;max-width:320px">
         <div style="font-size:9pt;color:#7A8A99;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:6px">Total Quote</div>
         <div style="font-family:monospace;font-size:26pt;font-weight:800;color:#1B3A5C;line-height:1">${fmt(totalQuote)}</div>
-        <div style="font-size:9pt;color:#7A8A99;margin-top:8px">Excluding GST · Kolega Construct</div>
+        <div style="font-size:9pt;color:#7A8A99;margin-top:8px">Excluding GST · ${esc(issuerName(job))}</div>
       </div>
       <div style="margin-top:28px;padding-top:14px;border-top:1pt solid #EEF3F8;font-size:9pt;color:#7A8A99;line-height:1.6">
-        <p style="margin:0 0 4px">This quote is provided by Kolega Construct and is valid for 30 days from the date of issue.</p>
+        <p style="margin:0 0 4px">This quote is provided by ${esc(issuerName(job))} and is valid for 30 days from the date of issue.</p>
         <p style="margin:0">All prices are exclusive of GST. Scope of works as described above. Variations will be quoted separately.</p>
       </div>
     </div>` : '';
@@ -472,15 +454,7 @@ function JobHeader({ job, internal }) {
 }
 
 function ScopeTable({ items, internal }) {
-  const categoryOrder = [];
-  const grouped = {};
-  items.forEach(it => {
-    if (!grouped[it.category]) {
-      grouped[it.category] = [];
-      categoryOrder.push(it.category);
-    }
-    grouped[it.category].push(it);
-  });
+  const { categoryOrder, grouped } = groupByCategory(items);
 
   const thStyle = {
     padding: '8px 10px',
@@ -530,8 +504,8 @@ function ScopeTable({ items, internal }) {
             const catManHours = catItems.reduce((s, it) => s + (it.hours || 0) * (it.crew || 1), 0);
             const catHours    = catItems.reduce((s, it) => s + (it.hours || 0), 0);
             return (
-              <>
-                <tr key={`cat-${cat}`} style={{ background: catColor.bg }}>
+              <Fragment key={cat}>
+                <tr style={{ background: catColor.bg }}>
                   <td
                     colSpan={internal ? 8 : 4}
                     style={{ padding: '5px 10px', fontSize: '11px', fontWeight: '700', letterSpacing: '0.06em', textTransform: 'uppercase', color: catColor.text }}
@@ -563,7 +537,7 @@ function ScopeTable({ items, internal }) {
                     </tr>
                   );
                 })}
-              </>
+              </Fragment>
             );
           })}
           <tr style={{ background: '#F0F6FB', borderTop: '2px solid #2E6DA4' }}>
@@ -585,24 +559,10 @@ function ScopeTable({ items, internal }) {
 }
 
 function InternalCostSummary({ job }) {
-  const items = job.items || [];
-  const costs = job.costs || {};
-  const labourRate  = costs.labourRate ?? 85;
-  const marginPct   = costs.marginPct ?? 20;
-  const riskPct     = costs.riskPct ?? 5;
-  const plantHire   = costs.plantHire ?? 0;
-  const consumables = costs.consumables ?? 0;
-  const travel      = costs.travel ?? 0;
-  const materials   = costs.materials ?? [];
-
-  const totalManHours  = items.reduce((s, it) => s + (it.hours || 0) * (it.crew || 1), 0);
-  const labourCost     = totalManHours * labourRate;
-  const materialsCost  = materials.reduce((s, m) => s + (m.cost || 0), 0);
-  const marginBase     = labourCost + materialsCost + consumables;
-  const passThrough    = plantHire + travel;
-  const marginAmt      = marginBase * (marginPct / 100);
-  const riskAmt        = marginBase * (riskPct / 100);
-  const totalQuote     = marginBase + marginAmt + riskAmt + passThrough;
+  const {
+    labourRate, marginPct, riskPct, plantHire, consumables, travel, materials,
+    totalManHours, labourCost, marginBase, marginAmt, riskAmt, totalQuote,
+  } = computeQuote(job);
 
   const row = (label, value, opts = {}) => (
     <div style={{
@@ -638,24 +598,7 @@ function InternalCostSummary({ job }) {
 }
 
 function ExternalQuote({ job }) {
-  const items = job.items || [];
-  const costs = job.costs || {};
-  const labourRate  = costs.labourRate ?? 85;
-  const marginPct   = costs.marginPct ?? 20;
-  const riskPct     = costs.riskPct ?? 5;
-  const plantHire   = costs.plantHire ?? 0;
-  const consumables = costs.consumables ?? 0;
-  const travel      = costs.travel ?? 0;
-  const materials   = costs.materials ?? [];
-
-  const totalManHours = items.reduce((s, it) => s + (it.hours || 0) * (it.crew || 1), 0);
-  const labourCost    = totalManHours * labourRate;
-  const materialsCost = materials.reduce((s, m) => s + (m.cost || 0), 0);
-  const marginBase    = labourCost + materialsCost + consumables;
-  const passThrough   = plantHire + travel;
-  const marginAmt     = marginBase * (marginPct / 100);
-  const riskAmt       = marginBase * (riskPct / 100);
-  const totalQuote    = marginBase + marginAmt + riskAmt + passThrough;
+  const { totalQuote } = computeQuote(job);
 
   return (
     <div style={{ marginTop: '20px' }}>
@@ -667,7 +610,7 @@ function ExternalQuote({ job }) {
           {fmt(totalQuote)}
         </div>
         <div style={{ fontSize: '12px', color: '#7A8A99', marginTop: '8px' }}>
-          Excluding GST · Kolega Construct
+          Excluding GST · {issuerName(job)}
         </div>
       </div>
     </div>
@@ -781,7 +724,7 @@ export default function Output({ job }) {
           <>
             <ExternalQuote job={job} />
             <div style={{ marginTop: '32px', paddingTop: '16px', borderTop: '1px solid #EEF3F8', fontSize: '12px', color: '#7A8A99', lineHeight: '1.6' }}>
-              <p style={{ margin: '0 0 6px' }}>This quote is provided by Kolega Construct and is valid for 30 days from the date of issue.</p>
+              <p style={{ margin: '0 0 6px' }}>This quote is provided by {issuerName(job)} and is valid for 30 days from the date of issue.</p>
               <p style={{ margin: 0 }}>All prices are exclusive of GST. Scope of works as described above. Variations will be quoted separately.</p>
             </div>
           </>

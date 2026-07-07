@@ -1,10 +1,7 @@
 import { useState } from 'react';
+import { computeQuote, fmt } from '../data/quote.js';
 
 const mono = { fontFamily: "'DM Mono', 'Courier New', monospace" };
-
-function fmt(n) {
-  return n.toLocaleString('en-AU', { style: 'currency', currency: 'AUD', minimumFractionDigits: 0, maximumFractionDigits: 0 });
-}
 
 let _matId = 1;
 function makeMaterialId() {
@@ -63,32 +60,15 @@ function NumberInput({ label, value, onChange, prefix = '$' }) {
 
 export default function Costs({ job, onUpdate }) {
   const costs = job.costs || {};
-  const items = job.items || [];
 
   const [newMatDesc, setNewMatDesc] = useState('');
   const [newMatCost, setNewMatCost] = useState('');
 
-  const totalManHours = items.reduce((s, it) => s + (it.hours || 0) * (it.crew || 1), 0);
-
-  const labourRate   = costs.labourRate ?? 85;
-  const marginPct    = costs.marginPct ?? 20;
-  const riskPct      = costs.riskPct ?? 5;
-  const plantHire    = costs.plantHire ?? 0;
-  const consumables  = costs.consumables ?? 0;
-  const travel       = costs.travel ?? 0;
-  const materials    = costs.materials ?? [];
-
-  // --- Formula ---
-  // Margin base = labour + materials + consumables (cost-of-works)
-  // Plant hire & travel are pass-throughs (no margin applied)
-  const labourCost    = totalManHours * labourRate;
-  const materialsCost = materials.reduce((s, m) => s + (m.cost || 0), 0);
-  const marginBase    = labourCost + materialsCost + consumables;
-  const passThrough   = plantHire + travel;
-  const marginAmt     = marginBase * (marginPct / 100);
-  const riskAmt       = marginBase * (riskPct / 100);
-  const totalQuote    = marginBase + marginAmt + riskAmt + passThrough;
-  const costPerMH     = totalManHours > 0 ? totalQuote / totalManHours : 0;
+  const {
+    labourRate, marginPct, riskPct, plantHire, consumables, travel, materials,
+    totalManHours, labourCost, materialsCost, marginBase, marginAmt, riskAmt,
+    totalQuote, costPerMH,
+  } = computeQuote(job);
 
   function setCost(field, value) {
     onUpdate({ ...job, costs: { ...costs, [field]: value } });
