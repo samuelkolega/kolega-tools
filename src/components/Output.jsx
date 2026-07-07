@@ -584,7 +584,9 @@ function InternalCostSummary({ job }) {
       </h2>
       <div style={{ border: '1px solid #D8E4EF', borderRadius: '8px', padding: '16px 20px', background: 'white', maxWidth: '420px' }}>
         {row(`Labour — ${totalManHours.toFixed(1)} mh × ${fmt(labourRate)}/hr`, fmt(labourCost))}
-        {materials.map(m => row(m.description || 'Material', fmt(m.cost || 0)))}
+        {materials.map((m, i) => (
+          <Fragment key={m.id || i}>{row(m.description || 'Material', fmt(m.cost || 0))}</Fragment>
+        ))}
         {row('Consumables', fmt(consumables))}
         {row('Margin base', fmt(marginBase), { sep: true })}
         {row(`Margin (${marginPct}%)`, fmt(marginAmt), { muted: true })}

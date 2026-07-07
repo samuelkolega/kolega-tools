@@ -157,6 +157,60 @@ export default function App() {
     }
   }
 
+  function handleDuplicateJob(id) {
+    const src = jobs.find(j => j.id === id);
+    if (!src) return;
+    const copy = structuredClone(src);
+    copy.id = makeJobId();
+    copy.name = src.name ? `${src.name} (copy)` : 'Untitled Job (copy)';
+    copy.items = (copy.items || []).map(it => ({ ...it, id: makeItemId() }));
+    setSaveStatus('saving');
+    setJobs(prev => [...prev, copy]);
+    setActiveJobId(copy.id);
+  }
+
+  function handleExport() {
+    const payload = {
+      app: 'kolega-scope',
+      version: 2,
+      exportedAt: new Date().toISOString(),
+      jobs,
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `kolega-scope-backup-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function handleImport(file) {
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const parsed = JSON.parse(reader.result);
+        const incoming = Array.isArray(parsed) ? parsed : parsed.jobs;
+        if (!Array.isArray(incoming)) throw new Error('no jobs array in file');
+        const valid = incoming.filter(j => j && j.id && Array.isArray(j.items));
+        if (valid.length === 0) throw new Error('no valid jobs in file');
+        setSaveStatus('saving');
+        // Same id = restore (overwrite), unseen id = append
+        setJobs(prev => {
+          const byId = new Map(prev.map(j => [j.id, j]));
+          valid.forEach(j => byId.set(j.id, j));
+          return [...byId.values()];
+        });
+        setActiveJobId(valid[valid.length - 1].id);
+        alert(`Imported ${valid.length} job${valid.length === 1 ? '' : 's'} from ${file.name}.`);
+      } catch (err) {
+        alert(`Import failed — ${err.message}. Expected a kolega-scope backup JSON file.`);
+      }
+    };
+    reader.onerror = () => alert('Import failed — could not read the file.');
+    reader.readAsText(file);
+  }
+
   // ── Styles ───────────────────────────────────────────────────────────────────
 
   const primary = '#1B3A5C';
@@ -176,6 +230,9 @@ export default function App() {
         onSelect={handleSelectJob}
         onNew={handleNewJob}
         onDelete={handleDeleteJob}
+        onDuplicate={handleDuplicateJob}
+        onExport={handleExport}
+        onImport={handleImport}
         onClose={() => setSidebarOpen(false)}
         isOpen={sidebarOpen}
       />

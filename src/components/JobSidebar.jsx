@@ -15,8 +15,21 @@ const DOC_TYPE_COLORS = {
   'TAX INVOICE':    { bg: '#F3E5F5', text: '#6A1B9A' },
 };
 
-export default function JobSidebar({ jobs, activeJobId, onSelect, onNew, onDelete, onClose, isOpen }) {
+export default function JobSidebar({ jobs, activeJobId, onSelect, onNew, onDelete, onDuplicate, onExport, onImport, onClose, isOpen }) {
   const docTypeColor = (type) => DOC_TYPE_COLORS[type] || DOC_TYPE_COLORS['QUOTE'];
+
+  const footerBtn = {
+    flex: 1,
+    background: '#EEF3F8',
+    color: '#1B3A5C',
+    border: '1px solid #D8E4EF',
+    borderRadius: '6px',
+    padding: '7px 0',
+    fontSize: '12px',
+    fontWeight: '600',
+    cursor: 'pointer',
+    textAlign: 'center',
+  };
 
   return (
     <>
@@ -220,6 +233,25 @@ export default function JobSidebar({ jobs, activeJobId, onSelect, onNew, onDelet
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
+                        onDuplicate(job.id);
+                        onClose();
+                      }}
+                      style={{
+                        background: 'none',
+                        border: 'none',
+                        fontSize: '11px',
+                        color: '#7A8A99',
+                        cursor: 'pointer',
+                        padding: '2px 4px',
+                        borderRadius: '3px',
+                        marginRight: 'auto',
+                      }}
+                    >
+                      Duplicate
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
                         if (window.confirm(`Delete "${job.name || 'Untitled Job'}"? This cannot be undone.`)) {
                           onDelete(job.id);
                         }
@@ -241,6 +273,32 @@ export default function JobSidebar({ jobs, activeJobId, onSelect, onNew, onDelet
               );
             })
           )}
+        </div>
+
+        {/* Backup footer */}
+        <div style={{
+          borderTop: '1px solid #EEF3F8',
+          padding: '10px 12px',
+          display: 'flex',
+          gap: '8px',
+          flexShrink: 0,
+        }}>
+          <button onClick={onExport} style={footerBtn} title="Download all jobs as a JSON backup file">
+            ↓ Export
+          </button>
+          <label style={footerBtn} title="Restore jobs from a backup file">
+            ↑ Import
+            <input
+              type="file"
+              accept=".json,application/json"
+              style={{ display: 'none' }}
+              onChange={e => {
+                const f = e.target.files?.[0];
+                if (f) onImport(f);
+                e.target.value = '';
+              }}
+            />
+          </label>
         </div>
       </div>
     </>
